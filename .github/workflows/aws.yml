@@ -1,4 +1,4 @@
-name: Deploy to EC2
+name: Build and Deploy Docker Container to EC2
 
 on:
   push:
@@ -6,37 +6,36 @@ on:
       - main
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Check out the repository
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Step 2: Log in to Docker Hub
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Build Docker Image
+      run: docker build -t my-app:latest .
 
-    # Step 3: Build and push the Docker image
-    - name: Build and push Docker image
-      run: |
-        docker build -t your-dockerhub-username/your-app-name .
-        docker push your-dockerhub-username/your-app-name
+    - name: Save Docker Image to Tarball
+      run: docker save my-app:latest -o my-app.tar
 
-    # Step 4: SSH into EC2 and deploy the container
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v0.1.10
+    - name: Copy Docker Image to EC2
+      uses: appleboy/scp-action@v0.1.8
       with:
-        host: ${{ secrets.EC2_PUBLIC_IP }}
-        username: ubuntu
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        port: 22
+        source: my-app.tar
+        target: ~/my-app.tar
+
+    - name: Load and Run Docker Container on EC2
+      uses: appleboy/ssh-action@v0.1.8
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          sudo docker pull your-dockerhub-username/your-app-name
-          sudo docker stop your-app || true
-          sudo docker rm your-app || true
-          sudo docker run -d --name your-app -p 80:80 your-dockerhub-username/your-app-name
+          docker load < ~/my-app.tar
+          docker stop my-app || true
+          docker rm my-app || true
+          docker run -d --name my-app -p 80:80 my-app:latest
